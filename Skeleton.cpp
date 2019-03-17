@@ -506,7 +506,7 @@ public:
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
-        if (colorLocation >= 0) glUniform3f(colorLocation, 1, 1, 1);
+        if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.7, 0);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, 2);
@@ -667,7 +667,7 @@ public:
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
-        if (colorLocation >= 0) glUniform3f(colorLocation, 1, 1, 1);
+        if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.7, 0);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, pointCnt);
@@ -813,7 +813,7 @@ public:
     Unicycle unicycle;
     void init() {
         unicycle.create();
-        unicycle.setScale(0.1);
+        unicycle.setScale(0.09);
 
         map.create();
     }
@@ -863,7 +863,7 @@ Game game;
 // Initialization, create an OpenGL context
 void onInitialization() {
     glViewport(0, 0, windowWidth, windowHeight);
-    glLineWidth(0.5f);
+    glLineWidth(2);
 
     game.init();
 
