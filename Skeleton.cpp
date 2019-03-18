@@ -167,7 +167,7 @@ class KochanekBartelsCurve {
 
     vec4 dHermite(vec4 p0, vec4 v0, float t0, vec4 p1, vec4 v1, float t1, float t) {
         std::vector<vec4> a = HermiteConstants(p0, v0, t0, p1, v1, t1, t);
-        vec4 rt = a[3] * pow(t - t0, 2)*3 + a[2] * (t - t0)*2 + a[1];
+        vec4 rt = a[3] * pow(t - t0, 2) * 3 + a[2] * (t - t0) * 2 + a[1];
         return rt;
     }
 public:
@@ -189,11 +189,28 @@ public:
         for (int i = 0; i < ctrlPoints.size(); i++) {
             vec4 p = ctrlPoints[i];
             if (p.x > x) {
-                ctrlPoints.insert(ctrlPoints.begin() + i, vec4(x,y));
+                ctrlPoints.insert(ctrlPoints.begin() + i, vec4(x, y));
                 ts.insert(ts.begin() + i, x);
                 break;
             }
         }
+    }
+
+    void moveCtrlPopint(int idx, float x, float y) {
+        vec4 cp = vec4(x, y, 0, 1);
+        ctrlPoints[idx] = cp;
+        ts[idx] = cp.x;
+    }
+
+    int grabCtrlPoint(float x, float y) {
+        vec2 from = vec2(x, y);
+        for (int i = 0; i < ctrlPoints.size(); i++) {
+            vec4 p4 = ctrlPoints[i];
+            if (length(from-vec2(p4.x, p4.y)) < 0.05) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     vec4 r(float t, bool derivative = false) {
@@ -226,11 +243,99 @@ public:
     }
 };
 
+class Tree {
+    GLuint vao, vao2;
+    vec2 wTranslate = vec2(0, 0);
+    float scale = 1;
+    int pointCnt = 0;
+    int pointCnt2 = 0;
+
+public:
+    void create() {
+        glGenVertexArrays(1, &vao);
+        glGenVertexArrays(1, &vao2);
+   
+
+        GLuint vbo, vbo2;
+
+        glGenBuffers(1, &vbo);
+        pointCnt = 4;
+        float vertexCoords[] = { -0.03, 0, 0.03, 0, -0.03, 0.1, 0.03, 0.1};   
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, pointCnt * 2 * sizeof(float), vertexCoords, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+        glGenBuffers(1, &vbo2);
+        pointCnt2 = 9;
+        float vertexCoords2[] = { -0.2, 0.1, 0.2, 0.1, 0, 0.3,
+                                  -0.2, 0.2, 0.2, 0.2, 0, 0.4, 
+                                  -0.2, 0.3, 0.2, 0.3, 0, 0.5};
+
+        glBindVertexArray(vao2);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo2);
+        glBufferData(GL_ARRAY_BUFFER, pointCnt2 * 2 * sizeof(float), vertexCoords2, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    }
+
+    void addTranslation(vec2 wT) {
+        wTranslate = wTranslate + wT;
+    }
+
+    void setTranslation(vec2 wT) {
+        addTranslation(wT - wTranslate);
+    }
+
+    void setScale(float s) {
+        scale = s;
+    }
+
+    mat4 M() {
+        mat4 Mscale(scale, 0, 0, 0,
+            0, scale, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 1);
+
+        mat4 Mtranslate(1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 0, 0,
+            wTranslate.x, wTranslate.y, 0, 1);
+
+        return Mscale * Mtranslate;
+    }
+
+    void draw(mat4 Mat) {
+        mat4 MVPTransform = Mat * M();
+        MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
+
+        int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
+        if (colorLocation >= 0) glUniform3f(colorLocation, 0.4, 0.2, 0);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, pointCnt);
+
+        if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.4, 0);
+        glBindVertexArray(vao2);
+        glDrawArrays(GL_TRIANGLES, 0, pointCnt2);
+    }
+
+    void draw() {
+        mat4 Mat(1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1);
+        draw(Mat);
+    }
+};
+
 class Map {
     GLuint vao, vbo;
     GLuint vaoBg, vboBg;
     KochanekBartelsCurve *curve;
     KochanekBartelsCurve *bgCurve;
+    std::vector<Tree> trees;
     std::vector<float> curveVertexCoords;
     std::vector<float> bgVertexCoords;
 
@@ -240,8 +345,8 @@ class Map {
         curveVertexCoords.clear();
         for (int i = 0; i < tesselatedCount; i++) {
             float tNormalized = ((float)i) / (tesselatedCount - 1.0f);
-            float t = curve -> tStart() + (curve -> tEnd() - curve -> tStart())*tNormalized;
-            vec4 curveCoord = curve -> r(t);
+            float t = curve->tStart() + (curve->tEnd() - curve->tStart())*tNormalized;
+            vec4 curveCoord = curve->r(t);
             curveVertexCoords.push_back(curveCoord.x);
             curveVertexCoords.push_back(curveCoord.y);
             curveVertexCoords.push_back(curveCoord.x);
@@ -249,7 +354,7 @@ class Map {
         }
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, curveVertexCoords.size()*sizeof(float), &curveVertexCoords[0], GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, curveVertexCoords.size() * sizeof(float), &curveVertexCoords[0], GL_DYNAMIC_DRAW);
 
         bgVertexCoords.clear();
         for (int i = 0; i < tesselatedCount; i++) {
@@ -264,15 +369,14 @@ class Map {
         glBindVertexArray(vaoBg);
         glBindBuffer(GL_ARRAY_BUFFER, vboBg);
         glBufferData(GL_ARRAY_BUFFER, bgVertexCoords.size() * sizeof(float), &bgVertexCoords[0], GL_DYNAMIC_DRAW);
-
     }
 public:
     void create() {
         curve = new KochanekBartelsCurve(-0.2);
         bgCurve = new KochanekBartelsCurve(0.3);
 
-        curve ->setEnds(vec2(-1.1, -0.3), vec2(1.1,-0.3));
-        bgCurve->setEnds(vec2(-1.1, 0.3), vec2(1.1,0.3));
+        curve->setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
+        bgCurve->setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
 
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
@@ -294,12 +398,32 @@ public:
     void addCtrlPoint(float x, float y) {
         curve -> addCtrlPoint(x, y);
         bgCurve -> addCtrlPoint(x, y + 0.6f);
+
+        Tree tree;
+        tree.create();
+        tree.setTranslation(vec2(x, y + 0.6f));
+        tree.setScale(0.1);
+        trees.push_back(tree);
+
         generateVertexCoord();
+    }
+
+    void moveCtrlPoint(int idx, float x, float y) {
+        curve -> moveCtrlPopint(idx, x, y);
+        bgCurve -> moveCtrlPopint(idx, x, y+0.6f);
+        trees[idx-1].setTranslation(vec2(x, y+0.6f));
+
+        generateVertexCoord();
+    }
+
+    int grabCtrlPoint(float x, float y) {
+        return bgCurve->grabCtrlPoint(x, y);
     }
 
     void clear() {
         curve -> setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
         bgCurve -> setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
+        trees.clear();
         generateVertexCoord();
     }
 
@@ -314,12 +438,18 @@ public:
         glDrawArrays(GL_TRIANGLE_STRIP, 0, bgVertexCoords.size() / 2);
         if (mountainLocation >= 0) glUniform1i(mountainLocation, 0);
 
+        for (int i = 0; i < trees.size(); i++) {
+            trees[i].draw(MVPTransform);
+        }
+
         MVPTransform = Mat * camera.M();
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0.0f, 0.0f, 0.0f);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, curveVertexCoords.size()/2);
         glBindVertexArray(vao);
+
+
     }
 
     void draw() {
@@ -608,7 +738,7 @@ public:
         float* vertexCoords = new float[pointCnt * 2];
         for (int i = 0; i < circlePointCnt; i++) {
             vertexCoords[2 * i] = r * cosf(i*stepRad - M_PI_2);
-            vertexCoords[2 * i + 1] = r * sinf(i*stepRad - M_PI_2)+1;
+            vertexCoords[2 * i + 1] = r * sinf(i*stepRad - M_PI_2)+1.25;
         }
 
         vertexCoords[2 * circlePointCnt] = 0;
@@ -706,7 +836,6 @@ public:
         pointCnt = 4;
 
         float vertexCoords[] = {0, 0, 0, 1, -0.3, 1, 0.3, 1};
-        float vertexColors[] = {1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0};
 
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, pointCnt * 2 * sizeof(float), vertexCoords, GL_STATIC_DRAW);
@@ -724,6 +853,10 @@ public:
 
     float getOffset() {
         return wheel.getR()*scale;
+    }
+
+    float getCoM() {
+        return 1.3*scale;
     }
 
     void Animate(float t) {
@@ -746,6 +879,11 @@ public:
             direction = 1;
         }
     }
+
+    void setRotation(float p) {
+        phi = p;
+    }
+
 
     void setTranslation(vec2 wT) {
         addTranslation(wT-wTranslate);
@@ -809,12 +947,12 @@ class Game {
     float g = 9.81;
     float rho = 1400;
     bool following = false;
+    int grabbedPoint = -1;
 public:
     Unicycle unicycle;
     void init() {
         unicycle.create();
         unicycle.setScale(0.09);
-
         map.create();
     }
 
@@ -824,7 +962,16 @@ public:
     }
 
     void onMouseDown(float x, float y) {
-        map.addCtrlPoint(x,y);
+        grabbedPoint = map.grabCtrlPoint(x, y);
+        if (grabbedPoint < 0) {
+            map.addCtrlPoint(x, y);
+        }   
+    }
+
+    void onMouseMoved(float x, float y) {
+        if (grabbedPoint >= 0) {
+            map.moveCtrlPoint(grabbedPoint, x, y-0.6);
+        }
     }
 
     void toggleCameraFollow() {
@@ -848,12 +995,15 @@ public:
             float dt = fmin(dT, timeChanged - t);
             float speed = (unicycle.getForce() - normalize(map.dr(s)).y*unicycle.getMass()*g*unicycle.getDirection())/rho*unicycle.getDirection();
             float ds = speed*dt;
-            s += ds/ length(map.dr(s));
+            vec2 dr = map.dr(s);
+            s += ds/ length(dr);
             vec2 pos = map.getCoords(s, unicycle.getOffset());
+            float ang = -asinf(unicycle.getOffset()/unicycle.getCoM()*dr.y/length(dr))*unicycle.getDirection();
             if (following) {
                 camera.setPan(vec2(fmin(fmax(pos.x, -camera.getZoom()), camera.getZoom()), pos.y));
             }
             unicycle.setTranslation(pos);
+            unicycle.setRotation(ang);
         }
     }
 };
@@ -898,19 +1048,31 @@ void onKeyboard(unsigned char key, int pX, int pY) {
 void onKeyboardUp(unsigned char key, int pX, int pY) {
 }
 
+bool leftButtonDown = false;
 // Move mouse with key pressed
 void onMouseMotion(int pX, int pY) {
+    if (leftButtonDown) {
+        float x = 2.0f * pX / windowWidth - 1;
+        float y = 1.0f - 2.0f * pY / windowHeight;
+        game.onMouseMoved(x, y);
+        glutPostRedisplay();
+    }
 }
 
 // Mouse click event
 void onMouse(int button, int state, int pX, int pY) {
     if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
+        leftButtonDown = true;
         float x = 2.0f * pX / windowWidth - 1;
         float y = 1.0f - 2.0f * pY / windowHeight;
 
         vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
 
         game.onMouseDown(wCoord.x, wCoord.y);
+        glutPostRedisplay();
+    }
+    if (button == GLUT_LEFT_BUTTON && state == GLUT_UP) {
+        leftButtonDown = false;
         glutPostRedisplay();
     }
 }

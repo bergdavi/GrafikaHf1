@@ -3,3 +3,7 @@
 ################################################################################
 
 /.vs
+/Release
+/Skeleton.vcxproj
+/Skeleton.vcxproj.filters
+/Skeleton.vcxproj.user
