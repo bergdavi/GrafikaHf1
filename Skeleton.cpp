@@ -185,26 +185,28 @@ public:
         ts.push_back(end.x);
     }
 
-    void addCtrlPoint(float x, float y) {
+    int addCtrlPoint(float x, float y) {
         for (int i = 0; i < ctrlPoints.size(); i++) {
             vec4 p = ctrlPoints[i];
             if (p.x > x) {
                 ctrlPoints.insert(ctrlPoints.begin() + i, vec4(x, y));
                 ts.insert(ts.begin() + i, x);
-                break;
+                return i;
             }
         }
     }
 
-    void moveCtrlPopint(int idx, float x, float y) {
+    vec4 moveCtrlPopint(int idx, float x, float y) {
         vec4 cp = vec4(x, y, 0, 1);
+        cp.x = fmax(fmin(cp.x, ctrlPoints[idx + 1].x - 0.05), ctrlPoints[idx - 1].x + 0.05);
         ctrlPoints[idx] = cp;
         ts[idx] = cp.x;
+        return cp;
     }
 
     int grabCtrlPoint(float x, float y) {
         vec2 from = vec2(x, y);
-        for (int i = 0; i < ctrlPoints.size(); i++) {
+        for (int i = 1; i < ctrlPoints.size()-1; i++) {
             vec4 p4 = ctrlPoints[i];
             if (length(from-vec2(p4.x, p4.y)) < 0.05) {
                 return i;
@@ -396,22 +398,22 @@ public:
     }
 
     void addCtrlPoint(float x, float y) {
-        curve -> addCtrlPoint(x, y);
+        int idx = curve -> addCtrlPoint(x, y);
         bgCurve -> addCtrlPoint(x, y + 0.6f);
 
         Tree tree;
         tree.create();
         tree.setTranslation(vec2(x, y + 0.6f));
         tree.setScale(0.1);
-        trees.push_back(tree);
+        trees.insert(trees.begin() + idx-1, tree);
 
         generateVertexCoord();
     }
 
     void moveCtrlPoint(int idx, float x, float y) {
-        curve -> moveCtrlPopint(idx, x, y);
-        bgCurve -> moveCtrlPopint(idx, x, y+0.6f);
-        trees[idx-1].setTranslation(vec2(x, y+0.6f));
+        vec4 moved = curve -> moveCtrlPopint(idx, x, y);
+        bgCurve -> moveCtrlPopint(idx, moved.x, moved.y+0.6f);
+        trees[idx-1].setTranslation(vec2(moved.x, moved.y+0.6f));
 
         generateVertexCoord();
     }
