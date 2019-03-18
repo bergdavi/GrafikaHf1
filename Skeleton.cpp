@@ -867,8 +867,6 @@ void onInitialization() {
 
     game.init();
 
-    game.onMouseDown(0, 0.1);
-
     // create program for the GPU
     gpuProgram.Create(vertexSource, fragmentSource, "outColor");
 }
