@@ -185,10 +185,14 @@ public:
         ts.push_back(end.x);
     }
 
-    int addCtrlPoint(float x, float y) {
+    int addCtrlPoint(float &x, float &y) {
         for (int i = 0; i < ctrlPoints.size(); i++) {
             vec4 p = ctrlPoints[i];
             if (p.x > x) {
+                if (ctrlPoints[i].x - ctrlPoints[i-1].x < 0.1) {
+                    return -1;
+                }
+                x = fmax(fmin(x, ctrlPoints[i].x - 0.05), ctrlPoints[i - 1].x + 0.05);
                 ctrlPoints.insert(ctrlPoints.begin() + i, vec4(x, y));
                 ts.insert(ts.begin() + i, x);
                 return i;
@@ -399,14 +403,17 @@ public:
 
     void addCtrlPoint(float x, float y) {
         int idx = curve -> addCtrlPoint(x, y);
-        bgCurve -> addCtrlPoint(x, y + 0.6f);
 
-        Tree tree;
-        tree.create();
-        tree.setTranslation(vec2(x, y + 0.6f));
-        tree.setScale(0.1);
-        trees.insert(trees.begin() + idx-1, tree);
+        if (idx > 0) {
+            y += 0.6f;
+            bgCurve->addCtrlPoint(x, y);
 
+            Tree tree;
+            tree.create();
+            tree.setTranslation(vec2(x, y));
+            tree.setScale(0.1);
+            trees.insert(trees.begin() + idx - 1, tree);
+        }        
         generateVertexCoord();
     }
 
