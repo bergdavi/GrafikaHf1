@@ -972,8 +972,9 @@ public:
 
     void onMouseDown(float x, float y) {
         grabbedPoint = map.grabCtrlPoint(x, y);
-        if (grabbedPoint < 0) {
+        if (grabbedPoint < 0 || following) {
             map.addCtrlPoint(x, y);
+            grabbedPoint = -1;
         }   
     }
 
@@ -1062,7 +1063,8 @@ bool leftButtonDown = false;
 void onMouseMotion(int pX, int pY) {
     if (leftButtonDown) {
         float x = 2.0f * pX / windowWidth - 1;
-        float y = 1.0f - 2.0f * pY / windowHeight;
+        float y = 1.0f - 2.0f * pY / windowHeight;      
+
         game.onMouseMoved(x, y);
         glutPostRedisplay();
     }
