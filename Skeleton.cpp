@@ -972,8 +972,9 @@ public:
 
     void onMouseDown(float x, float y) {
         grabbedPoint = map.grabCtrlPoint(x, y);
-        if (grabbedPoint < 0 || following) {
-            map.addCtrlPoint(x, y);
+        if (grabbedPoint < 0) {
+            vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+            map.addCtrlPoint(wCoord.x, wCoord.y);
             grabbedPoint = -1;
         }   
     }
@@ -1077,9 +1078,7 @@ void onMouse(int button, int state, int pX, int pY) {
         float x = 2.0f * pX / windowWidth - 1;
         float y = 1.0f - 2.0f * pY / windowHeight;
 
-        vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
-
-        game.onMouseDown(wCoord.x, wCoord.y);
+        game.onMouseDown(x, y);
         glutPostRedisplay();
     }
     if (button == GLUT_LEFT_BUTTON && state == GLUT_UP) {
