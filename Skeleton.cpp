@@ -33,7 +33,6 @@
 //=============================================================================================
 #include "framework.h"
 
-// vertex shader in GLSL: It is a Raw string (C++11) since it contains new line characters
 const char * const vertexSource = R"(
 	#version 330				// Shader 3.3
 	precision highp float;		// normal floats, makes no difference on desktop computers
@@ -41,13 +40,10 @@ const char * const vertexSource = R"(
 	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
 
 	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
-	// layout(location = 1) in vec3 vc;
 
-	//out vec3 color;
     out vec2 coords;
 
 	void main() {
-		// color = vc;
         coords = vp;
 		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
 	}
@@ -58,15 +54,14 @@ const char * const fragmentSource = R"(
 	#version 330			// Shader 3.3
 	precision highp float;	// normal floats, makes no difference on desktop computers
 
-	// in vec3 color;
     in vec2 coords;
 	uniform vec3 color;
     uniform int mountain;
 	out vec4 outColor;		// computed color of the current pixel
 
 	void main() {
-        int y = int((coords.y + 1)*300);
-        int x = int((coords.x + 1)*300) + 1000 + y*2 + y%2;
+        float y = (coords.y + 1)*300;
+        float x = (coords.x + 1)*300;
         if(mountain != 0 && y > 460) {
             y = y-460;
             float s = sin(coords.x*15)*12+12;
@@ -130,14 +125,6 @@ public:
 
     void setPan(vec2 t) {
         wCenter = t * (1.0f/wScale);
-    }
-
-    void zoom(float s) {
-        wScale *= s;
-    }
-
-    void pan(vec2 t) {
-        wCenter = wCenter + t;
     }
 };
 
@@ -266,7 +253,7 @@ public:
 
         glGenBuffers(1, &vbo);
         pointCnt = 4;
-        float vertexCoords[] = { -0.03, 0, 0.03, 0, -0.03, 0.1, 0.03, 0.1};   
+        float vertexCoords[] = { -0.03, 0, 0.03, 0, -0.03, 0.1, 0.03, 0.1};
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -277,7 +264,7 @@ public:
         glGenBuffers(1, &vbo2);
         pointCnt2 = 9;
         float vertexCoords2[] = { -0.2, 0.1, 0.2, 0.1, 0, 0.3,
-                                  -0.2, 0.2, 0.2, 0.2, 0, 0.4, 
+                                  -0.2, 0.2, 0.2, 0.2, 0, 0.4,
                                   -0.2, 0.3, 0.2, 0.3, 0, 0.5};
 
         glBindVertexArray(vao2);
@@ -325,14 +312,6 @@ public:
         if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.4, 0);
         glBindVertexArray(vao2);
         glDrawArrays(GL_TRIANGLES, 0, pointCnt2);
-    }
-
-    void draw() {
-        mat4 Mat(1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1);
-        draw(Mat);
     }
 };
 
@@ -504,7 +483,7 @@ public:
         int stepDeg = 5;
         int spokeCnt = 6;
 
-        float stepRad = stepDeg * M_PI / 180.0f;
+        float stepRad = (float)(stepDeg * M_PI / 180.0f);
         int circlePointCnt = 360 / stepDeg;
         int spokeFreq = circlePointCnt / spokeCnt;
         pointCnt = circlePointCnt + spokeCnt*2;
@@ -534,9 +513,6 @@ public:
         return r;
     }
 
-    void Animate(float t) {
-        phi = t;
-    }
 
     void addDistance(float dist) {
         addRotation(-dist/(r*scale));
@@ -544,14 +520,6 @@ public:
 
     void addRotation(float dphi) {
         phi += dphi;
-    }
-
-    void addTranslation(vec2 wT) {
-        wTranslate = wTranslate + wT;
-    }
-
-    void setScale(float s) {
-        scale = s;
     }
 
     vec2 getPedalPos(int idx) {
@@ -586,14 +554,6 @@ public:
 
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, pointCnt);
-    }
-
-    void draw() {
-        mat4 M( 1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1);
-        draw(M);
     }
 };
 
@@ -650,14 +610,6 @@ public:
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, 2);
     }
-
-    void draw() {
-        mat4 M( 1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1);
-        draw(M);
-    }
 };
 
 class Leg {
@@ -710,15 +662,6 @@ public:
         upper.draw(Mat);
         lower.draw(Mat);
     }
-
-    void draw() {
-        mat4 M( 1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1);
-        draw(M);
-    }
-
 };
 
 class Rider {
@@ -774,11 +717,6 @@ public:
         wTranslate = wTranslate + wT;
     }
 
-    void setScale(float scale) {
-        sx = scale;
-        sy = scale;
-    }
-
     mat4 M() {
         mat4 Mscale( sx, 0 , 0, 0,
                      0 , sy, 0, 0,
@@ -811,15 +749,6 @@ public:
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, pointCnt);
     }
-
-    void draw() {
-        mat4 M( 1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1);
-        draw(M);
-    }
-
 };
 
 class Unicycle {
@@ -866,12 +795,6 @@ public:
 
     float getCoM() {
         return 1.3*scale;
-    }
-
-    void Animate(float t) {
-        wheel.Animate(t);
-        rider.setFrontFootPos(wheel.getPedalPos(0));
-        rider.setBackFootPos(wheel.getPedalPos(1));
     }
 
     void addTranslation(vec2 wT) {
@@ -1021,18 +944,17 @@ public:
 
 Game game;
 
-// Initialization, create an OpenGL context
 void onInitialization() {
     glViewport(0, 0, windowWidth, windowHeight);
     glLineWidth(2);
-
+    printf("[Left mouse button]: Place control point\n");
+    printf("[Left mouse button]: Move control point, with tree\n");
+    printf("[Space]: Toggle follow camera\n");
+    printf("[Delete]: Remove all control points\n");
     game.init();
-
-    // create program for the GPU
     gpuProgram.Create(vertexSource, fragmentSource, "outColor");
 }
 
-// Window has become invalid: Redraw
 void onDisplay() {
     glClearColor(0.5, 0.5, 1, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1041,7 +963,6 @@ void onDisplay() {
     glutSwapBuffers();
 }
 
-// Key of ASCII code pressed
 void onKeyboard(unsigned char key, int pX, int pY) {
     switch (key) {
         case ' ':
@@ -1055,12 +976,10 @@ void onKeyboard(unsigned char key, int pX, int pY) {
     }
 }
 
-// Key of ASCII code released
 void onKeyboardUp(unsigned char key, int pX, int pY) {
 }
 
 bool leftButtonDown = false;
-// Move mouse with key pressed
 void onMouseMotion(int pX, int pY) {
     if (leftButtonDown) {
         float x = 2.0f * pX / windowWidth - 1;
@@ -1071,7 +990,6 @@ void onMouseMotion(int pX, int pY) {
     }
 }
 
-// Mouse click event
 void onMouse(int button, int state, int pX, int pY) {
     if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
         leftButtonDown = true;
@@ -1088,7 +1006,6 @@ void onMouse(int button, int state, int pX, int pY) {
 }
 
 static float lastSec = 0;
-// Idle event indicating that some time elapsed: do animation here
 void onIdle() {
     long time = glutGet(GLUT_ELAPSED_TIME);
     float sec = time / 1000.0f;
