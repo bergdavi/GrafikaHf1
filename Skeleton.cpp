@@ -88,31 +88,17 @@ public:
     Camera2D() : wCenter(0, 0), wScale(1) {}
 
     mat4 M() {
-        mat4 Mtranslate(1/wScale, 0       , 0, 0,
-                        0       , 1/wScale, 0, 0,
-                        0       , 0       , 0, 0,
-                        0       , 0       , 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(1/wScale, 1/wScale));
+        mat4 Mtranslate = TranslateMatrix(vec3(-wCenter));
 
-        mat4 Mscale( 1        , 0        , 0, 0,
-                     0        , 1        , 0, 0,
-                     0        , 0        , 1, 0,
-                     -wCenter.x,-wCenter.y, 0, 1);
-
-        return Mtranslate * Mscale;
+        return Mscale * Mtranslate;
     }
 
     mat4 Minv() {
-        mat4 MtranslateInv( wScale, 0     , 0, 0,
-                            0     , wScale, 0, 0,
-                            0     , 0     , 0, 0,
-                            0     , 0     , 0, 1);
+        mat4 MscaleInv = ScaleMatrix(vec3(wScale, wScale));
+        mat4 MtranslateInv = TranslateMatrix(wCenter);
 
-        mat4 MscaleInv( 1        , 0        , 0, 0,
-                        0        , 1        , 0, 0,
-                        0        , 0        , 1, 0,
-                        wCenter.x, wCenter.y, 0, 1);
-
-        return MscaleInv * MtranslateInv;
+        return MtranslateInv * MscaleInv;
     }
 
     float getZoom() {
@@ -287,15 +273,8 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale(scale, 0, 0, 0,
-            0, scale, 0, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 1);
-
-        mat4 Mtranslate(1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 0, 0,
-            wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return Mscale * Mtranslate;
     }
@@ -448,11 +427,6 @@ public:
         draw(M);
     }
 
-    vec2 r(float s) {
-        vec4 v = curve -> r(s);
-        return vec2(v.x, v.y);
-    }
-
     vec2 dr(float s) {
         vec4 v = curve -> r(s, true);
         return vec2(v.x, v.y);
@@ -527,20 +501,9 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( scale, 0    , 0, 0,
-                     0    , scale, 0, 0,
-                     0    , 0    , 0, 0,
-                     0    , 0    , 0, 1);
-
-        mat4 Mrotate( cosf(phi), sinf(phi), 0, 0,
-                      -sinf(phi), cosf(phi), 0, 0,
-                      0        , 0        , 0, 0,
-                      0        , 0        , 0, 1);
-
-        mat4 Mtranslate( 1          , 0           , 0, 0,
-                         0          , 1           , 0, 0,
-                         0          , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mrotate = RotationMatrix(phi, vec3(0,0,1));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return  Mrotate * Mscale * Mtranslate;
     }
@@ -587,15 +550,8 @@ public:
     }
 
     mat4 M() {
-        mat4 Mtranslate(1	  ,	0	  , 0, 0,
-                        0	  ,	1	  , 0, 0,
-                        0	  ,	0	  , 0, 0,
-                        from.x, from.y, 0, 1);
-
-        mat4 Mskew( to.x-from.x, 0			, 0, 0,
-                    0		   , to.y-from.y, 0, 0,
-                    0		   , 0			, 0, 0,
-                    0		   , 0			, 0, 1);
+        mat4 Mtranslate = TranslateMatrix(from);
+        mat4 Mskew = ScaleMatrix(to-from);
 
         return Mskew * Mtranslate;
     }
@@ -667,7 +623,7 @@ public:
 class Rider {
     GLuint vao;
     vec2 wTranslate = vec2(0, 0);
-    float sx = 1, sy = 1;
+    float scale = 1;
     int pointCnt = 0;
 
     Leg frontLeg;
@@ -718,22 +674,13 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( sx, 0 , 0, 0,
-                     0 , sy, 0, 0,
-                     0 , 0 , 0, 0,
-                     0 , 0 , 0, 1);
-
-        mat4 Mtranslate( 1           , 0           , 0, 0,
-                         0           , 1           , 0, 0,
-                         0           , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return Mscale * Mtranslate;
     }
 
     void draw(mat4 Mat) {
-
-
         mat4 MVPTransform = M()*Mat;
 
         backLeg.draw(MVPTransform);
@@ -826,25 +773,10 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( scale, 0    , 0, 0,
-                     0    , scale, 0, 0,
-                     0    , 0    , 0, 0,
-                     0    , 0    , 0, 1);
-
-        mat4 Mrotate( cosf(phi), sinf(phi), 0, 0,
-                      -sinf(phi), cosf(phi), 0, 0,
-                      0        , 0        , 0, 0,
-                      0         , 0       , 0, 1);
-
-        mat4 Mtranslate( 1           , 0           , 0, 0,
-                         0           , 1           , 0, 0,
-                         0           , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
-
-        mat4 Mdirection(direction, 0, 0, 0,
-                        0        , 1, 0, 0,
-                        0        , 0, 1, 0,
-                        0        , 0, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mrotate = RotationMatrix(phi, vec3(0,0,1));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
+        mat4 Mdirection = ScaleMatrix(vec3(direction, 1));
 
         return Mscale * Mrotate * Mdirection*Mtranslate;
     }
