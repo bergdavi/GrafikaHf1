@@ -39,12 +39,13 @@ const char * const vertexSource = R"(
 
 	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
 
-	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+	layout(location = 0) in vec2 vp;
+	layout(location = 1) in vec2 vu;    
 
     out vec2 coords;
 
 	void main() {
-        coords = vp;
+        coords = vu;
 		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
 	}
 )";
@@ -56,22 +57,13 @@ const char * const fragmentSource = R"(
 
     in vec2 coords;
 	uniform vec3 color;
-    uniform int mountain;
+    uniform sampler2D textureUnit;
+    uniform int useTexture;
 	out vec4 outColor;		// computed color of the current pixel
 
-	void main() {
-        float y = (coords.y + 1)*300;
-        float x = (coords.x + 1)*300;
-        if(mountain != 0 && y > 460) {
-            y = y-460;
-            float s = sin(coords.x*15)*12+12;
-            if(y > s) {
-                float c = max(min(1.0, 1.0-(y-s)*0.01), 0.90);
-                outColor = vec4(c, c, c, 1);
-            }
-            else {
-                outColor = vec4(color, 1);
-            }
+	void main() {       
+        if(useTexture != 0) {
+            outColor = texture(textureUnit, coords);           
         }
         else {
             outColor = vec4(color, 1);	// computed color is the color of the primitive
@@ -280,7 +272,7 @@ public:
     }
 
     void draw(mat4 Mat) {
-        mat4 MVPTransform = Mat * M();
+        mat4 MVPTransform = Mat * M() * camera.M();
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
@@ -294,14 +286,86 @@ public:
     }
 };
 
+class Background {
+    unsigned int vao, vbo[2];
+    Texture * pTexture;
+public:   
+    void create() {
+        glGenVertexArrays(1, &vao);	// create 1 vertex array object
+        glBindVertexArray(vao);		// make it active
+
+        glGenBuffers(2, vbo);	// Generate 1 vertex buffer objects
+
+        float vertices[] = {-1, -1, -1, 1, 1, 1, 1, -1};
+        float uvs[] = {0, 0, 0, 1, 1, 1, 1, 0};
+
+        // vertex coordinates: vbo[0] -> Attrib Array 0 -> vertexPosition of the vertex shader
+        glBindBuffer(GL_ARRAY_BUFFER, vbo[0]); // make it active, it is an array
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);	   // copy to that part of the memory which will be modified 
+        // Map Attribute Array 0 to the current bound vertex buffer (vbo[0])
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);     // stride and offset: it is tightly packed
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo[1]); // make it active, it is an array
+        glBufferData(GL_ARRAY_BUFFER, sizeof(uvs), uvs, GL_STATIC_DRAW);	   // copy to that part of the memory which is not modified 
+        // Map Attribute Array 0 to the current bound vertex buffer (vbo[0])
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, NULL);     // stride and offset: it is tightly packed
+
+        int width = 600, height = 600;
+        std::vector<vec4> image(width * height);
+        vec4 skyColor = vec4(0, 0, 1, 1);
+        vec4 mountainColor = vec4(0.5f, 0.5f, 0.5f, 1);
+
+        KochanekBartelsCurve curve(0.5);
+        curve.setEnds(vec2(0, 400), vec2(600, 400));
+        float cpX = 150;
+        float cpY = 550;
+        curve.addCtrlPoint(cpX, cpY);
+        cpX = 400;
+        cpY = 200;
+        curve.addCtrlPoint(cpX, cpY);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                
+                if (y < curve.r(x).y) {
+                   
+                    image[y*width + x] = mountainColor;
+                }
+                else {
+                    image[y*width + x] = skyColor;
+                }
+            }
+        }
+
+        pTexture = new Texture(width, height, image);
+    }
+
+
+
+    void draw() {
+        glBindVertexArray(vao);	// make the vao and its vbos active playing the role of the data source
+        mat4 MVPTransform = mat4(1, 0, 0, 0, 
+                                 0, 1, 0, 0, 
+                                 0, 0, 1, 0,
+                                 0, 0, 0, 1);
+        // set GPU uniform matrix variable MVP with the content of CPU variable MVPTransform
+        MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
+        int useTextureLocation = glGetUniformLocation(gpuProgram.getId(), "useTexture");
+        if (useTextureLocation >= 0) glUniform1i(useTextureLocation, 1);
+        pTexture->SetUniform(gpuProgram.getId(), "textureUnit");
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);	// draw two triangles forming a quad
+        if (useTextureLocation >= 0) glUniform1i(useTextureLocation, 0);
+    }
+};
+
 class Map {
     GLuint vao, vbo;
-    GLuint vaoBg, vboBg;
     KochanekBartelsCurve *curve;
-    KochanekBartelsCurve *bgCurve;
+    Background background;
     std::vector<Tree> trees;
     std::vector<float> curveVertexCoords;
-    std::vector<float> bgVertexCoords;
 
     void generateVertexCoord() {
         int tesselatedCount = 1000;
@@ -319,40 +383,18 @@ class Map {
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, curveVertexCoords.size() * sizeof(float), &curveVertexCoords[0], GL_DYNAMIC_DRAW);
-
-        bgVertexCoords.clear();
-        for (int i = 0; i < tesselatedCount; i++) {
-            float tNormalized = ((float)i) / (tesselatedCount - 1.0f);
-            float t = bgCurve->tStart() + (bgCurve->tEnd() - bgCurve->tStart())*tNormalized;
-            vec4 curveCoord = bgCurve->r(t);
-            bgVertexCoords.push_back(curveCoord.x);
-            bgVertexCoords.push_back(curveCoord.y);
-            bgVertexCoords.push_back(curveCoord.x);
-            bgVertexCoords.push_back(-2);
-        }
-        glBindVertexArray(vaoBg);
-        glBindBuffer(GL_ARRAY_BUFFER, vboBg);
-        glBufferData(GL_ARRAY_BUFFER, bgVertexCoords.size() * sizeof(float), &bgVertexCoords[0], GL_DYNAMIC_DRAW);
     }
 public:
     void create() {
+        background.create();
         curve = new KochanekBartelsCurve(-0.2);
-        bgCurve = new KochanekBartelsCurve(0.3);
 
-        curve->setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
-        bgCurve->setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
+        curve->setEnds(vec2(-1.1, -0.8), vec2(1.1, -0.8));
 
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-
-        glGenVertexArrays(1, &vaoBg);
-        glBindVertexArray(vaoBg);
-        glGenBuffers(1, &vboBg);
-        glBindBuffer(GL_ARRAY_BUFFER, vboBg);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 
@@ -363,13 +405,10 @@ public:
         int idx = curve -> addCtrlPoint(x, y);
 
         if (idx > 0) {
-            y += 0.6f;
-            bgCurve->addCtrlPoint(x, y);
-
             Tree tree;
             tree.create();
-            tree.setTranslation(vec2(x, y));
-            tree.setScale(0.1);
+            tree.setTranslation(vec2(x, y-0.05));
+            tree.setScale(1);
             trees.insert(trees.begin() + idx - 1, tree);
         }        
         generateVertexCoord();
@@ -377,33 +416,28 @@ public:
 
     void moveCtrlPoint(int idx, float x, float y) {
         vec4 moved = curve -> moveCtrlPopint(idx, x, y);
-        bgCurve -> moveCtrlPopint(idx, moved.x, moved.y+0.6f);
-        trees[idx-1].setTranslation(vec2(moved.x, moved.y+0.6f));
+        trees[idx-1].setTranslation(vec2(moved.x, moved.y-0.05));
 
         generateVertexCoord();
     }
 
     int grabCtrlPoint(float x, float y) {
-        return bgCurve->grabCtrlPoint(x, y);
+        return curve->grabCtrlPoint(x, y);
     }
 
     void clear() {
-        curve -> setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
-        bgCurve -> setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
+        curve -> setEnds(vec2(-1.1, -0.8), vec2(1.1, -0.8));
         trees.clear();
         generateVertexCoord();
     }
 
     void draw(mat4 Mat) {
+        background.draw();
         mat4 MVPTransform = Mat;
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0.7f, 0.7f, 0.7f);
-        int mountainLocation = glGetUniformLocation(gpuProgram.getId(), "mountain");
-        if (mountainLocation >= 0) glUniform1i(mountainLocation, 1);
-        glBindVertexArray(vaoBg);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, bgVertexCoords.size() / 2);
-        if (mountainLocation >= 0) glUniform1i(mountainLocation, 0);
+       
 
         for (int i = 0; i < trees.size(); i++) {
             trees[i].draw(MVPTransform);
@@ -415,8 +449,6 @@ public:
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, curveVertexCoords.size()/2);
         glBindVertexArray(vao);
-
-
     }
 
     void draw() {
@@ -826,9 +858,11 @@ public:
     }
 
     void onMouseDown(float x, float y) {
-        grabbedPoint = map.grabCtrlPoint(x, y);
-        if (grabbedPoint < 0) {
-            vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+        vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+        if (!following) {
+            grabbedPoint = map.grabCtrlPoint(wCoord.x, wCoord.y);
+        }        
+        if (grabbedPoint < 0) {           
             map.addCtrlPoint(wCoord.x, wCoord.y);
             grabbedPoint = -1;
         }   
@@ -836,7 +870,8 @@ public:
 
     void onMouseMoved(float x, float y) {
         if (grabbedPoint >= 0) {
-            map.moveCtrlPoint(grabbedPoint, x, y-0.6);
+            vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+            map.moveCtrlPoint(grabbedPoint, wCoord.x, wCoord.y);
         }
     }
 
@@ -844,6 +879,7 @@ public:
         following = !following;
         if (following) {
             camera.setZoom(0.5);
+            grabbedPoint = -1;
         }
         else {
             camera.setZoom(1);
