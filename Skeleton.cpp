@@ -314,24 +314,32 @@ public:
 
         int width = 600, height = 600;
         std::vector<vec4> image(width * height);
-        vec4 skyColor = vec4(0, 0, 1, 1);
+        vec4 skyColor = vec4(0.5, 0.8, 1, 1);
         vec4 mountainColor = vec4(0.5f, 0.5f, 0.5f, 1);
 
         KochanekBartelsCurve curve(0.5);
-        curve.setEnds(vec2(0, 400), vec2(600, 400));
+        curve.setEnds(vec2(0, 400), vec2(600, 350));
         float cpX = 150;
-        float cpY = 550;
+        float cpY = 570;
         curve.addCtrlPoint(cpX, cpY);
-        cpX = 400;
-        cpY = 200;
+        cpX = 350;
+        cpY = 250;
+        curve.addCtrlPoint(cpX, cpY);
+        cpX = 450;
+        cpY = 500;
         curve.addCtrlPoint(cpX, cpY);
 
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                
                 if (y < curve.r(x).y) {
-                   
-                    image[y*width + x] = mountainColor;
+                    float s = sinf(x/20.0f)*10 + 400;
+                    if(y > s) {
+                        float c = fmaxf(fminf(1.0f, 1.0f-(y-s)*0.01f), 0.85f);
+                        image[y*width + x] = vec4(c,c,c,1);
+                    }
+                    else {
+                        image[y*width + x] = mountainColor;
+                    }
                 }
                 else {
                     image[y*width + x] = skyColor;
