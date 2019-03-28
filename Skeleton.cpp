@@ -39,12 +39,16 @@ const char * const vertexSource = R"(
 
 	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
 
-	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+	layout(location = 0) in vec2 vp;
+	layout(location = 1) in vec2 vu;
+    layout(location = 2) in vec3 vc;
 
     out vec2 coords;
+    out vec3 calcColor;
 
 	void main() {
-        coords = vp;
+        coords = vu;
+        calcColor = vc;
 		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
 	}
 )";
@@ -55,26 +59,21 @@ const char * const fragmentSource = R"(
 	precision highp float;	// normal floats, makes no difference on desktop computers
 
     in vec2 coords;
+    in vec3 calcColor;
 	uniform vec3 color;
-    uniform int mountain;
+    uniform sampler2D textureUnit;
+    uniform int colorMode;
 	out vec4 outColor;		// computed color of the current pixel
 
-	void main() {
-        float y = (coords.y + 1)*300;
-        float x = (coords.x + 1)*300;
-        if(mountain != 0 && y > 460) {
-            y = y-460;
-            float s = sin(coords.x*15)*12+12;
-            if(y > s) {
-                float c = max(min(1.0, 1.0-(y-s)*0.01), 0.90);
-                outColor = vec4(c, c, c, 1);
-            }
-            else {
-                outColor = vec4(color, 1);
-            }
+	void main() {       
+        if(colorMode == 0) {
+            outColor = texture(textureUnit, coords);           
         }
-        else {
+        else if(colorMode == 1){
             outColor = vec4(color, 1);	// computed color is the color of the primitive
+        }
+        else if(colorMode == 2) {
+            outColor = vec4(calcColor, 1);
         }
 	}
 )";
@@ -88,31 +87,17 @@ public:
     Camera2D() : wCenter(0, 0), wScale(1) {}
 
     mat4 M() {
-        mat4 Mtranslate(1/wScale, 0       , 0, 0,
-                        0       , 1/wScale, 0, 0,
-                        0       , 0       , 0, 0,
-                        0       , 0       , 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(1/wScale, 1/wScale));
+        mat4 Mtranslate = TranslateMatrix(vec3(-wCenter));
 
-        mat4 Mscale( 1        , 0        , 0, 0,
-                     0        , 1        , 0, 0,
-                     0        , 0        , 1, 0,
-                     -wCenter.x,-wCenter.y, 0, 1);
-
-        return Mtranslate * Mscale;
+        return Mscale * Mtranslate;
     }
 
     mat4 Minv() {
-        mat4 MtranslateInv( wScale, 0     , 0, 0,
-                            0     , wScale, 0, 0,
-                            0     , 0     , 0, 0,
-                            0     , 0     , 0, 1);
+        mat4 MscaleInv = ScaleMatrix(vec3(wScale, wScale));
+        mat4 MtranslateInv = TranslateMatrix(wCenter);
 
-        mat4 MscaleInv( 1        , 0        , 0, 0,
-                        0        , 1        , 0, 0,
-                        0        , 0        , 1, 0,
-                        wCenter.x, wCenter.y, 0, 1);
-
-        return MscaleInv * MtranslateInv;
+        return MtranslateInv * MscaleInv;
     }
 
     float getZoom() {
@@ -133,7 +118,7 @@ Camera2D camera;
 class KochanekBartelsCurve {
     std::vector<vec4> ctrlPoints;
     std::vector<float> ts;
-    float tens = -0.1;
+    float tens = -0.1f;
 
     std::vector<vec4> HermiteConstants(vec4 p0, vec4 v0, float t0, vec4 p1, vec4 v1, float t1, float t) {
         vec4 a0 = p0;
@@ -179,7 +164,7 @@ public:
                 if (ctrlPoints[i].x - ctrlPoints[i-1].x < 0.1) {
                     return -1;
                 }
-                x = fmax(fmin(x, ctrlPoints[i].x - 0.05), ctrlPoints[i - 1].x + 0.05);
+                x = fmaxf(fminf(x, ctrlPoints[i].x - 0.05f), ctrlPoints[i - 1].x + 0.05f);
                 ctrlPoints.insert(ctrlPoints.begin() + i, vec4(x, y));
                 ts.insert(ts.begin() + i, x);
                 return i;
@@ -187,19 +172,19 @@ public:
         }
     }
 
-    vec4 moveCtrlPopint(int idx, float x, float y) {
+    vec4 moveCtrlPoint(int idx, float x, float y) {
         vec4 cp = vec4(x, y, 0, 1);
-        cp.x = fmax(fmin(cp.x, ctrlPoints[idx + 1].x - 0.05), ctrlPoints[idx - 1].x + 0.05);
+        cp.x = fmaxf(fminf(cp.x, ctrlPoints[idx + 1].x - 0.05f), ctrlPoints[idx - 1].x + 0.05f);
         ctrlPoints[idx] = cp;
         ts[idx] = cp.x;
         return cp;
     }
 
-    int grabCtrlPoint(float x, float y) {
+    int grabCtrlPoint(float x, float y, float r) {
         vec2 from = vec2(x, y);
         for (int i = 1; i < ctrlPoints.size()-1; i++) {
             vec4 p4 = ctrlPoints[i];
-            if (length(from-vec2(p4.x, p4.y)) < 0.05) {
+            if (length(from-vec2(p4.x, p4.y)) < r) {
                 return i;
             }
         }
@@ -237,41 +222,55 @@ public:
 };
 
 class Tree {
-    GLuint vao, vao2;
+    GLuint vaoTrunk, vaoLeaves;
     vec2 wTranslate = vec2(0, 0);
     float scale = 1;
-    int pointCnt = 0;
-    int pointCnt2 = 0;
+    int pointCntTrunk = 0;
+    int pointCntLeaves = 0;
 
 public:
     void create() {
-        glGenVertexArrays(1, &vao);
-        glGenVertexArrays(1, &vao2);
-   
+        glGenVertexArrays(1, &vaoTrunk);
+        glGenVertexArrays(1, &vaoLeaves);
+        GLuint vboTrunk, vboLeaves, vboColorLeaves;
 
-        GLuint vbo, vbo2;
+        glGenBuffers(1, &vboTrunk);
+        pointCntTrunk = 4;
+        float vertexCoordsTrunk[] = { -0.02, 0, 0.02, 0, -0.02, 0.1, 0.02, 0.1};
 
-        glGenBuffers(1, &vbo);
-        pointCnt = 4;
-        float vertexCoords[] = { -0.03, 0, 0.03, 0, -0.03, 0.1, 0.03, 0.1};
-
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, pointCnt * 2 * sizeof(float), vertexCoords, GL_STATIC_DRAW);
+        glBindVertexArray(vaoTrunk);
+        glBindBuffer(GL_ARRAY_BUFFER, vboTrunk);
+        glBufferData(GL_ARRAY_BUFFER, pointCntTrunk * 2 * sizeof(float), vertexCoordsTrunk, GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 
-        glGenBuffers(1, &vbo2);
-        pointCnt2 = 9;
-        float vertexCoords2[] = { -0.2, 0.1, 0.2, 0.1, 0, 0.3,
-                                  -0.2, 0.2, 0.2, 0.2, 0, 0.4,
-                                  -0.2, 0.3, 0.2, 0.3, 0, 0.5};
+        glGenBuffers(1, &vboLeaves);
+        glGenBuffers(1, &vboColorLeaves);
+        pointCntLeaves = 9;
+        float vertexCoordsLeaves[] = { -0.15, 0.1, 0.15, 0.1, 0, 0.3,
+                                       -0.15, 0.2, 0.15, 0.2, 0, 0.4,
+                                       -0.15, 0.3, 0.15, 0.3, 0, 0.5};
+        float vertexColorsLeaves[pointCntLeaves*3];
+        for(int i = 0; i < pointCntLeaves; i++) {
+            vertexColorsLeaves[i*3] = 0;
+            vertexColorsLeaves[i*3+2] = 0;
+            if(i%3 == 2) {
+                vertexColorsLeaves[i*3+1] = 0.6;
+            }
+            else {
+                vertexColorsLeaves[i*3+1] = 0.4;
+            }
+        }
 
-        glBindVertexArray(vao2);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo2);
-        glBufferData(GL_ARRAY_BUFFER, pointCnt2 * 2 * sizeof(float), vertexCoords2, GL_STATIC_DRAW);
+        glBindVertexArray(vaoLeaves);
+        glBindBuffer(GL_ARRAY_BUFFER, vboLeaves);
+        glBufferData(GL_ARRAY_BUFFER, pointCntLeaves * 2 * sizeof(float), vertexCoordsLeaves, GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+        glBindBuffer(GL_ARRAY_BUFFER, vboColorLeaves);
+        glBufferData(GL_ARRAY_BUFFER, pointCntLeaves * 3 * sizeof(float), vertexColorsLeaves, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
     }
 
     void addTranslation(vec2 wT) {
@@ -287,42 +286,112 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale(scale, 0, 0, 0,
-            0, scale, 0, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 1);
-
-        mat4 Mtranslate(1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 0, 0,
-            wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return Mscale * Mtranslate;
     }
 
     void draw(mat4 Mat) {
-        mat4 MVPTransform = Mat * M();
+        mat4 MVPTransform = Mat * M() * camera.M();
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0.4, 0.2, 0);
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, pointCnt);
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
 
-        if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.4, 0);
-        glBindVertexArray(vao2);
-        glDrawArrays(GL_TRIANGLES, 0, pointCnt2);
+        glBindVertexArray(vaoTrunk);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, pointCntTrunk);
+
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 2);
+        glBindVertexArray(vaoLeaves);
+        glDrawArrays(GL_TRIANGLES, 0, pointCntLeaves);
+    }
+};
+
+class Background {
+    unsigned int vao, vbo[2];
+    Texture * pTexture;
+public:   
+    void create() {
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+        glGenBuffers(2, vbo);
+
+        float vertices[] = {-1, -1, -1, 1, 1, 1, 1, -1};
+        float uvs[] = {0, 0, 0, 1, 1, 1, 1, 0};
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(uvs), uvs, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+        int width = 600, height = 600;
+        std::vector<vec4> image(width * height);
+        vec4 skyColor = vec4(0.5, 0.8, 1, 1);
+        vec4 mountainColor = vec4(0.5f, 0.5f, 0.5f, 1);
+
+        KochanekBartelsCurve curve(0.5);
+        curve.setEnds(vec2(0, 400), vec2(600, 350));
+        float cpX = 150;
+        float cpY = 570;
+        curve.addCtrlPoint(cpX, cpY);
+        cpX = 350;
+        cpY = 250;
+        curve.addCtrlPoint(cpX, cpY);
+        cpX = 450;
+        cpY = 500;
+        curve.addCtrlPoint(cpX, cpY);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (y < curve.r(x).y) {
+                    float s = sinf(x/20.0f)*10 + 400;
+                    if(y > s) {
+                        float c = fmaxf(fminf(1.0f, 1.0f-(y-s)*0.01f), 0.85f);
+                        image[y*width + x] = vec4(c,c,c,1);
+                    }
+                    else {
+                        image[y*width + x] = mountainColor;
+                    }
+                }
+                else {
+                    image[y*width + x] = skyColor;
+                }
+            }
+        }
+
+        pTexture = new Texture(width, height, image);
+    }
+
+
+
+    void draw() {
+        glBindVertexArray(vao);
+        mat4 MVPTransform = mat4(1, 0, 0, 0, 
+                                 0, 1, 0, 0, 
+                                 0, 0, 1, 0,
+                                 0, 0, 0, 1);
+        MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 0);
+        pTexture->SetUniform(gpuProgram.getId(), "textureUnit");
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     }
 };
 
 class Map {
     GLuint vao, vbo;
-    GLuint vaoBg, vboBg;
     KochanekBartelsCurve *curve;
-    KochanekBartelsCurve *bgCurve;
+    Background background;
     std::vector<Tree> trees;
     std::vector<float> curveVertexCoords;
-    std::vector<float> bgVertexCoords;
 
     void generateVertexCoord() {
         int tesselatedCount = 1000;
@@ -340,40 +409,18 @@ class Map {
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, curveVertexCoords.size() * sizeof(float), &curveVertexCoords[0], GL_DYNAMIC_DRAW);
-
-        bgVertexCoords.clear();
-        for (int i = 0; i < tesselatedCount; i++) {
-            float tNormalized = ((float)i) / (tesselatedCount - 1.0f);
-            float t = bgCurve->tStart() + (bgCurve->tEnd() - bgCurve->tStart())*tNormalized;
-            vec4 curveCoord = bgCurve->r(t);
-            bgVertexCoords.push_back(curveCoord.x);
-            bgVertexCoords.push_back(curveCoord.y);
-            bgVertexCoords.push_back(curveCoord.x);
-            bgVertexCoords.push_back(-2);
-        }
-        glBindVertexArray(vaoBg);
-        glBindBuffer(GL_ARRAY_BUFFER, vboBg);
-        glBufferData(GL_ARRAY_BUFFER, bgVertexCoords.size() * sizeof(float), &bgVertexCoords[0], GL_DYNAMIC_DRAW);
     }
 public:
     void create() {
+        background.create();
         curve = new KochanekBartelsCurve(-0.2);
-        bgCurve = new KochanekBartelsCurve(0.3);
 
-        curve->setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
-        bgCurve->setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
+        curve->setEnds(vec2(-1.1, -0.8), vec2(1.1, -0.8));
 
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-
-        glGenVertexArrays(1, &vaoBg);
-        glBindVertexArray(vaoBg);
-        glGenBuffers(1, &vboBg);
-        glBindBuffer(GL_ARRAY_BUFFER, vboBg);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 
@@ -384,60 +431,49 @@ public:
         int idx = curve -> addCtrlPoint(x, y);
 
         if (idx > 0) {
-            y += 0.6f;
-            bgCurve->addCtrlPoint(x, y);
-
             Tree tree;
             tree.create();
-            tree.setTranslation(vec2(x, y));
-            tree.setScale(0.1);
+            tree.setTranslation(vec2(x, y-0.05));
+            tree.setScale(1);
             trees.insert(trees.begin() + idx - 1, tree);
         }        
         generateVertexCoord();
     }
 
     void moveCtrlPoint(int idx, float x, float y) {
-        vec4 moved = curve -> moveCtrlPopint(idx, x, y);
-        bgCurve -> moveCtrlPopint(idx, moved.x, moved.y+0.6f);
-        trees[idx-1].setTranslation(vec2(moved.x, moved.y+0.6f));
+        vec4 moved = curve->moveCtrlPoint(idx, x, y);
+        trees[idx-1].setTranslation(vec2(moved.x, moved.y-0.05));
 
         generateVertexCoord();
     }
 
     int grabCtrlPoint(float x, float y) {
-        return bgCurve->grabCtrlPoint(x, y);
+        return curve->grabCtrlPoint(x, y-0.05, 0.1);
     }
 
     void clear() {
-        curve -> setEnds(vec2(-1.1, -0.3), vec2(1.1, -0.3));
-        bgCurve -> setEnds(vec2(-1.1, 0.3), vec2(1.1, 0.3));
+        curve -> setEnds(vec2(-1.1, -0.8), vec2(1.1, -0.8));
         trees.clear();
         generateVertexCoord();
     }
 
     void draw(mat4 Mat) {
+        background.draw();
         mat4 MVPTransform = Mat;
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
-        int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
-        if (colorLocation >= 0) glUniform3f(colorLocation, 0.7f, 0.7f, 0.7f);
-        int mountainLocation = glGetUniformLocation(gpuProgram.getId(), "mountain");
-        if (mountainLocation >= 0) glUniform1i(mountainLocation, 1);
-        glBindVertexArray(vaoBg);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, bgVertexCoords.size() / 2);
-        if (mountainLocation >= 0) glUniform1i(mountainLocation, 0);
 
         for (int i = 0; i < trees.size(); i++) {
-            trees[i].draw(MVPTransform);
+            trees[i].draw(Mat);
         }
 
         MVPTransform = Mat * camera.M();
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
+        int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0.0f, 0.0f, 0.0f);
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, curveVertexCoords.size()/2);
-        glBindVertexArray(vao);
-
-
     }
 
     void draw() {
@@ -446,11 +482,6 @@ public:
                 0, 0, 1, 0,
                 0, 0, 0, 1);
         draw(M);
-    }
-
-    vec2 r(float s) {
-        vec4 v = curve -> r(s);
-        return vec2(v.x, v.y);
     }
 
     vec2 dr(float s) {
@@ -527,20 +558,9 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( scale, 0    , 0, 0,
-                     0    , scale, 0, 0,
-                     0    , 0    , 0, 0,
-                     0    , 0    , 0, 1);
-
-        mat4 Mrotate( cosf(phi), sinf(phi), 0, 0,
-                      -sinf(phi), cosf(phi), 0, 0,
-                      0        , 0        , 0, 0,
-                      0        , 0        , 0, 1);
-
-        mat4 Mtranslate( 1          , 0           , 0, 0,
-                         0          , 1           , 0, 0,
-                         0          , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mrotate = RotationMatrix(phi, vec3(0,0,1));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return  Mrotate * Mscale * Mtranslate;
     }
@@ -551,7 +571,8 @@ public:
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 1, 0, 0);
-
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, pointCnt);
     }
@@ -587,15 +608,8 @@ public:
     }
 
     mat4 M() {
-        mat4 Mtranslate(1	  ,	0	  , 0, 0,
-                        0	  ,	1	  , 0, 0,
-                        0	  ,	0	  , 0, 0,
-                        from.x, from.y, 0, 1);
-
-        mat4 Mskew( to.x-from.x, 0			, 0, 0,
-                    0		   , to.y-from.y, 0, 0,
-                    0		   , 0			, 0, 0,
-                    0		   , 0			, 0, 1);
+        mat4 Mtranslate = TranslateMatrix(from);
+        mat4 Mskew = ScaleMatrix(to-from);
 
         return Mskew * Mtranslate;
     }
@@ -606,7 +620,8 @@ public:
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.7, 0);
-
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, 2);
     }
@@ -667,7 +682,7 @@ public:
 class Rider {
     GLuint vao;
     vec2 wTranslate = vec2(0, 0);
-    float sx = 1, sy = 1;
+    float scale = 1;
     int pointCnt = 0;
 
     Leg frontLeg;
@@ -718,22 +733,13 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( sx, 0 , 0, 0,
-                     0 , sy, 0, 0,
-                     0 , 0 , 0, 0,
-                     0 , 0 , 0, 1);
-
-        mat4 Mtranslate( 1           , 0           , 0, 0,
-                         0           , 1           , 0, 0,
-                         0           , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
 
         return Mscale * Mtranslate;
     }
 
     void draw(mat4 Mat) {
-
-
         mat4 MVPTransform = M()*Mat;
 
         backLeg.draw(MVPTransform);
@@ -745,7 +751,8 @@ public:
 
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 0, 0.7, 0);
-
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_LOOP, 0, pointCnt);
     }
@@ -826,25 +833,10 @@ public:
     }
 
     mat4 M() {
-        mat4 Mscale( scale, 0    , 0, 0,
-                     0    , scale, 0, 0,
-                     0    , 0    , 0, 0,
-                     0    , 0    , 0, 1);
-
-        mat4 Mrotate( cosf(phi), sinf(phi), 0, 0,
-                      -sinf(phi), cosf(phi), 0, 0,
-                      0        , 0        , 0, 0,
-                      0         , 0       , 0, 1);
-
-        mat4 Mtranslate( 1           , 0           , 0, 0,
-                         0           , 1           , 0, 0,
-                         0           , 0           , 0, 0,
-                         wTranslate.x, wTranslate.y, 0, 1);
-
-        mat4 Mdirection(direction, 0, 0, 0,
-                        0        , 1, 0, 0,
-                        0        , 0, 1, 0,
-                        0        , 0, 0, 1);
+        mat4 Mscale = ScaleMatrix(vec3(scale, scale));
+        mat4 Mrotate = RotationMatrix(phi, vec3(0,0,1));
+        mat4 Mtranslate = TranslateMatrix(wTranslate);
+        mat4 Mdirection = ScaleMatrix(vec3(direction, 1));
 
         return Mscale * Mrotate * Mdirection*Mtranslate;
     }
@@ -857,6 +849,8 @@ public:
         MVPTransform.SetUniform(gpuProgram.getId(), "MVP");
         int colorLocation = glGetUniformLocation(gpuProgram.getId(), "color");
         if (colorLocation >= 0) glUniform3f(colorLocation, 1, 0, 0);
+        int colorModeLocation = glGetUniformLocation(gpuProgram.getId(), "colorMode");
+        if (colorModeLocation >= 0) glUniform1i(colorModeLocation, 1);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINE_STRIP, 0, pointCnt);
 
@@ -894,9 +888,11 @@ public:
     }
 
     void onMouseDown(float x, float y) {
-        grabbedPoint = map.grabCtrlPoint(x, y);
-        if (grabbedPoint < 0) {
-            vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+        vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+        if (!following) {
+            grabbedPoint = map.grabCtrlPoint(wCoord.x, wCoord.y);
+        }        
+        if (grabbedPoint < 0) {           
             map.addCtrlPoint(wCoord.x, wCoord.y);
             grabbedPoint = -1;
         }   
@@ -904,7 +900,8 @@ public:
 
     void onMouseMoved(float x, float y) {
         if (grabbedPoint >= 0) {
-            map.moveCtrlPoint(grabbedPoint, x, y-0.6);
+            vec4 wCoord = vec4(x, y, 0, 1) * camera.Minv();
+            map.moveCtrlPoint(grabbedPoint, wCoord.x, wCoord.y);
         }
     }
 
@@ -912,6 +909,7 @@ public:
         following = !following;
         if (following) {
             camera.setZoom(0.5);
+            grabbedPoint = -1;
         }
         else {
             camera.setZoom(1);
@@ -948,7 +946,7 @@ void onInitialization() {
     glViewport(0, 0, windowWidth, windowHeight);
     glLineWidth(2);
     printf("[Left mouse button]: Place control point\n");
-    printf("[Left mouse button]: Move control point, with tree\n");
+    printf("[Left mouse button on tree trunk]: Move control point, (only when follow camera is off)\n");
     printf("[Space]: Toggle follow camera\n");
     printf("[Delete]: Remove all control points\n");
     game.init();
