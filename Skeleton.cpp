@@ -180,11 +180,11 @@ public:
         return cp;
     }
 
-    int grabCtrlPoint(float x, float y) {
+    int grabCtrlPoint(float x, float y, float r) {
         vec2 from = vec2(x, y);
         for (int i = 1; i < ctrlPoints.size()-1; i++) {
             vec4 p4 = ctrlPoints[i];
-            if (length(from-vec2(p4.x, p4.y)) < 0.05) {
+            if (length(from-vec2(p4.x, p4.y)) < r) {
                 return i;
             }
         }
@@ -448,7 +448,7 @@ public:
     }
 
     int grabCtrlPoint(float x, float y) {
-        return curve->grabCtrlPoint(x, y);
+        return curve->grabCtrlPoint(x, y-0.05, 0.1);
     }
 
     void clear() {
@@ -946,7 +946,7 @@ void onInitialization() {
     glViewport(0, 0, windowWidth, windowHeight);
     glLineWidth(2);
     printf("[Left mouse button]: Place control point\n");
-    printf("[Left mouse button]: Move control point, with tree (only when follow camera is off)\n");
+    printf("[Left mouse button on tree trunk]: Move control point, (only when follow camera is off)\n");
     printf("[Space]: Toggle follow camera\n");
     printf("[Delete]: Remove all control points\n");
     game.init();
