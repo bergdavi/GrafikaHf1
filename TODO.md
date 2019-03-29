@@ -1,5 +1,5 @@
 **TODO**
 
-- [ ] Curve tension params by distance
-- [ ] Check physics with ppt
-- [ ] Curve must be explicit!!!
+- [X] Curve tension params by distance
+- [X] Check physics with ppt
+- [X] Curve must be explicit!!!
