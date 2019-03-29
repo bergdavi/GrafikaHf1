@@ -34,10 +34,10 @@
 #include "framework.h"
 
 const char * const vertexSource = R"(
-	#version 330				// Shader 3.3
-	precision highp float;		// normal floats, makes no difference on desktop computers
+	#version 330				
+	precision highp float;		
 
-	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
+	uniform mat4 MVP;			
 
 	layout(location = 0) in vec2 vp;
 	layout(location = 1) in vec2 vu;
@@ -49,28 +49,28 @@ const char * const vertexSource = R"(
 	void main() {
         coords = vu;
         calcColor = vc;
-		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
+		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		
 	}
 )";
 
 // fragment shader in GLSL
 const char * const fragmentSource = R"(
-	#version 330			// Shader 3.3
-	precision highp float;	// normal floats, makes no difference on desktop computers
+	#version 330			
+	precision highp float;	
 
     in vec2 coords;
     in vec3 calcColor;
 	uniform vec3 color;
     uniform sampler2D textureUnit;
     uniform int colorMode;
-	out vec4 outColor;		// computed color of the current pixel
+	out vec4 outColor;		
 
 	void main() {       
         if(colorMode == 0) {
             outColor = texture(textureUnit, coords);           
         }
         else if(colorMode == 1){
-            outColor = vec4(color, 1);	// computed color is the color of the primitive
+            outColor = vec4(color, 1);	
         }
         else if(colorMode == 2) {
             outColor = vec4(calcColor, 1);
@@ -118,7 +118,7 @@ Camera2D camera;
 class KochanekBartelsCurve {
     std::vector<vec4> ctrlPoints;
     std::vector<float> ts;
-    float tens = -0.1f;
+    float tens;
 
     std::vector<vec4> HermiteConstants(vec4 p0, vec4 v0, float t0, vec4 p1, vec4 v1, float t1, float t) {
         vec4 a0 = p0;
@@ -250,7 +250,7 @@ public:
         float vertexCoordsLeaves[] = { -0.15, 0.1, 0.15, 0.1, 0, 0.3,
                                        -0.15, 0.2, 0.15, 0.2, 0, 0.4,
                                        -0.15, 0.3, 0.15, 0.3, 0, 0.5};
-        float vertexColorsLeaves[pointCntLeaves*3];
+        float *vertexColorsLeaves = new float[pointCntLeaves * 3];
         for(int i = 0; i < pointCntLeaves; i++) {
             vertexColorsLeaves[i*3] = 0;
             vertexColorsLeaves[i*3+2] = 0;
@@ -271,6 +271,8 @@ public:
         glBufferData(GL_ARRAY_BUFFER, pointCntLeaves * 3 * sizeof(float), vertexColorsLeaves, GL_STATIC_DRAW);
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+        delete vertexColorsLeaves;
     }
 
     void addTranslation(vec2 wT) {
@@ -334,25 +336,25 @@ public:
 
         int width = 600, height = 600;
         std::vector<vec4> image(width * height);
-        vec4 skyColor = vec4(0.5, 0.8, 1, 1);
+        vec4 skyColor = vec4(0.2, 0.4, 0.7, 1);
         vec4 mountainColor = vec4(0.5f, 0.5f, 0.5f, 1);
 
-        KochanekBartelsCurve curve(0.5);
-        curve.setEnds(vec2(0, 400), vec2(600, 350));
+        KochanekBartelsCurve *curve = new KochanekBartelsCurve(0.7);
+        curve -> setEnds(vec2(0, 400), vec2(600, 350));
         float cpX = 150;
         float cpY = 570;
-        curve.addCtrlPoint(cpX, cpY);
+        curve ->addCtrlPoint(cpX, cpY);
         cpX = 350;
         cpY = 250;
-        curve.addCtrlPoint(cpX, cpY);
+        curve -> addCtrlPoint(cpX, cpY);
         cpX = 450;
         cpY = 500;
-        curve.addCtrlPoint(cpX, cpY);
+        curve -> addCtrlPoint(cpX, cpY);
 
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                if (y < curve.r(x).y) {
-                    float s = sinf(x/20.0f)*10 + 400;
+                if (y < curve -> r(x).y) {
+                    float s = sinf(x/20.0f)*10 + 420;
                     if(y > s) {
                         float c = fmaxf(fminf(1.0f, 1.0f-(y-s)*0.01f), 0.85f);
                         image[y*width + x] = vec4(c,c,c,1);
@@ -368,6 +370,7 @@ public:
         }
 
         pTexture = new Texture(width, height, image);
+        delete curve;
     }
 
 
@@ -399,11 +402,11 @@ class Map {
         curveVertexCoords.clear();
         for (int i = 0; i < tesselatedCount; i++) {
             float tNormalized = ((float)i) / (tesselatedCount - 1.0f);
-            float t = curve->tStart() + (curve->tEnd() - curve->tStart())*tNormalized;
+            float t=  curve->tStart() + (curve->tEnd() - curve->tStart())*tNormalized;
             vec4 curveCoord = curve->r(t);
-            curveVertexCoords.push_back(curveCoord.x);
+            curveVertexCoords.push_back(curveCoord.x);            
             curveVertexCoords.push_back(curveCoord.y);
-            curveVertexCoords.push_back(curveCoord.x);
+            curveVertexCoords.push_back(curveCoord.x);            
             curveVertexCoords.push_back(-2);
         }
         glBindVertexArray(vao);
@@ -491,7 +494,7 @@ public:
 
     vec2 getCoords(float s, float offset) {
         vec4 c = curve -> r(s);
-        vec4 v = curve -> r(s, true);
+        vec4 v = curve -> r(s, true);       
         return vec2(c.x, c.y) + normalize(vec2(-v.y, v.x) )* offset;
     }
 };
